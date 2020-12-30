@@ -1,7 +1,9 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Timers;
+using System.Text.Json.Serialization;
 using Blish_HUD;
+using Blish_HUD.Content;
 using Blish_HUD.Pathing.Content;
 using temp.Timers.Controls;
 
@@ -14,153 +16,193 @@ namespace temp.Timers.Models {
     }
 
     public class Encounter : IDisposable {
-        public string id { get; set; }
-        public string name { get; set; }
-        public string category { get; set; }
-        public string description { get; set; }
-        public string icon { get; set; }
-        public int map { get; set; }
-        public List<Phase> phases { get; set; }
-        public EndTrigger reset { get; set; }
+
+        // Serialized Properties
+        [JsonPropertyName("id")]
+        public string Id { get; set; } = "unknown";
+        [JsonPropertyName("name")]
+        public string Name { get; set; } = "Unknown Timer";
+        [JsonPropertyName("category")]
+        public string Category { get; set; } = "Other";
+        [JsonPropertyName("description")]
+        public string Description { get; set; } = "Timer description has not been set.";
+        [JsonPropertyName("author")]
+        public string Author { get; set; } = "Unknown Author";
+        [JsonPropertyName("icon")]
+        public string IconString { get; set; } = "raid";
+        [JsonPropertyName("disabled")]
+        public bool Disabled { get; set; }
+        [JsonPropertyName("map")]
+        public int Map { get; set; }
+        [JsonPropertyName("phases")]
+        public List<Phase> Phases { get; set; }
+        [JsonPropertyName("reset")]
+        public EndTrigger Reset { get; set; }
+
+
         // Non-serialized
-        public const int TICKRATE = 100;
-        public const float TICKINTERVAL = (float) (TICKRATE / 1000.0f);
-        public bool IsWatched { get; set; }
-        public bool Activated { get; set; }
+        [JsonIgnore]
+        public bool Enabled { get; set; }
+        [JsonIgnore]
+        public bool Active { 
+            get { return _active; }
+            set {
+                _active = value;
+                if (value) {
+                    foreach (Phase ph in Phases) {
+                        ph.Activate();
+                    }
+                    if (_clock != null) {
+                        _clock.Elapsed -= Tick;
+                        _clock.Dispose();
+                        _clock = null;
+                    }
+                    _clock = new Timer(TimersModule.ModuleInstance.Resources.TICKINTERVAL);
+                    _clock.AutoReset = true;
+                    _clock.Elapsed += Tick;
+                } else {
+                    foreach (Phase ph in Phases) {
+                        ph.Deactivate();
+                    }
+                    Stop();
+                    if (_clock != null) {
+                        _clock.Elapsed -= Tick;
+                        _clock.Dispose();
+                        _clock = null;
+                    }
+                }
+            } }
+        [JsonIgnore]
+        public AsyncTexture2D Icon { get; set; }
+
+
+        // Private members
         private bool _active { get; set; }
         private bool _pendingUpdates { get; set; }
         private bool _awaitingNextPhase { get; set; }
         private int _currentPhase { get; set; }
         private Timer _clock { get; set; }
         private DateTime _startTime { get; set; }
-        public void Init(PathableResourceManager pathableResourceManager) {
+
+
+        public void Init (PathableResourceManager pathableResourceManager) {
             // Validation
-            if (this.map == 0) 
-                throw new TimerReadException( this.id + ": could not read map property.");
-            if (phases?.Count == 0) 
-                throw new TimerReadException( this.id + ": could not read phase property.");
-            string message = reset.Init();
+            if (Map == 0) 
+                throw new TimerReadException( Id + ": map property undefined");
+            if (Phases?.Count == 0) 
+                throw new TimerReadException( Id + ": phase property undefined");
+
+            string message = Reset.Init();
             if (message != null)
-                throw new TimerReadException(this.id + ": " + message);
-            if (this.name == null || this.name == "")
-                this.name = "Unknown Timer";
-            if (this.category == null || this.category == "")
-                this.category = "Other";
-            if (this.description == null || this.description == "")
-                this.description = "Timer description has not been set.";
+                throw new TimerReadException( Id + ": " + message);
 
             // Validate and Initialize Phases
-            foreach (Phase ph in this.phases) {
+            foreach (Phase ph in Phases) {
                 message = ph.Init(pathableResourceManager);
                 if (message != null)
-                    throw new TimerReadException(this.id + ": " + message);
+                    throw new TimerReadException( Id + ": " + message);
             }
+
+            Icon = TimersModule.ModuleInstance.Resources.GetIcon(IconString);
+            if (Icon == null)
+                Icon = pathableResourceManager.LoadTexture(IconString);
         }
-        public bool ShouldStart () {
+
+
+        // Private Methods
+        private bool ShouldStart () {
             // Check if already active.
-            if (this._active) return false;
+            if (Active) return false;
 
             // Double-check map. Should be unnecessary.
-            if (this.map != GameService.Gw2Mumble.CurrentMap.Id) 
+            if (Map != GameService.Gw2Mumble.CurrentMap.Id) 
                 return false;
 
             // Check trigger for first phase.
-            Phase first = this.phases[0];
-            return first.start.Passing();
+            Phase first = Phases[0];
+            return first.Start.Passing();
         }
-        public bool ShouldStop () {
+        private bool ShouldStop () {
             // Check if already inactive.
-            if (!this._active) return false;
+            if (!Active) return false;
 
             // Double-check map. Should be unnecessary.
-            if (this.map != GameService.Gw2Mumble.CurrentMap.Id)
+            if (Map != GameService.Gw2Mumble.CurrentMap.Id)
                 return true;
 
             // Check if in final phase and passing
-            if (this._currentPhase == (this.phases.Count - 1) &&
-                this.phases[this._currentPhase].finish != null &&
-                this.phases[this._currentPhase].finish.Passing())
+            if (_currentPhase == (Phases.Count - 1) &&
+                Phases[_currentPhase].Finish != null &&
+                Phases[_currentPhase].Finish.Passing())
                 return true;
 
             // Check encounter reset
-            return this.reset.Passing();
+            return Reset.Passing();
         }
-        public void Start(AlertContainer parent) {
+        private void Start(AlertContainer parent) {
             // Initialize timer
-            this._clock.Start();
-            this._startTime = DateTime.Now;
-            this._active = true;
-            this.phases[this._currentPhase].Update(parent, 0.0f);
+            _clock.Start();
+            _startTime = DateTime.Now;
+            _active = true;
+            Phases[_currentPhase].Update(parent, 0.0f);
         }
-        public void Stop() {
-            this._clock?.Stop();
-            foreach (Phase ph in this.phases) {
+        private void Stop() {
+            _clock?.Stop();
+            foreach (Phase ph in Phases) {
                 ph.Stop();
             }
-            this._active = false;
-            this._pendingUpdates = false;
-            this._currentPhase = 0;
+            _active = false;
+            _pendingUpdates = false;
+            _currentPhase = 0;
         }
-        public void Pause() {
+        private void Pause() {
             // Timer is paused when waiting between phases.
-            this._clock?.Stop();
-            this._pendingUpdates = false;
+            _clock?.Stop();
+            _pendingUpdates = false;
         }
-        public void Tick(object source, ElapsedEventArgs e) {
-            this._pendingUpdates = true;
+        private void Tick(object source, ElapsedEventArgs e) {
+            _pendingUpdates = true;
         }
-        public void Activate() {
-            foreach (Phase ph in this.phases) {
-                ph.Activate();
-            }
-            this._clock?.Dispose();
-            this._clock = new Timer(100);
-            this._clock.AutoReset = true;
-            this._clock.Elapsed += Tick;
-            this.Activated = true;
-        }
-        public void Deactivate() {
-            foreach (Phase ph in this.phases) {
-                ph.Deactivate();
-            }
-            this.Stop();
-            this._clock?.Dispose();
-            this.Activated = false;
-        }
+
+
+        // Public Methods
         public void Update(AlertContainer parent) {
-            if (this.ShouldStart()) {
-                this.Start(parent);
-            } else if (this.ShouldStop()) {
-                this.Stop();
-            } else if (this._awaitingNextPhase) {
+            if (ShouldStart()) {
+                Start(parent);
+            } else if (ShouldStop()) {
+                Stop();
+            } else if (_awaitingNextPhase) {
                 // Waiting period between phases.
-                if (this._currentPhase + 1 < this.phases.Count) {
+                if (_currentPhase + 1 < Phases.Count) {
                     // In theory, the above condition should never fail...
-                    if (this.phases[this._currentPhase + 1].start != null &&
-                        this.phases[this._currentPhase + 1].start.Passing()) {
-                        this._currentPhase++;
-                        this._awaitingNextPhase = false;
-                        this.Start(parent);
+                    if (Phases[_currentPhase + 1].Start != null &&
+                        Phases[_currentPhase + 1].Start.Passing()) {
+                        _currentPhase++;
+                        _awaitingNextPhase = false;
+                        Start(parent);
                     }
                 }
-            } else if (this.phases[this._currentPhase].finish != null &&
-                       this.phases[this._currentPhase].finish.Passing()) {
+            } else if (Phases[_currentPhase].Finish != null &&
+                       Phases[_currentPhase].Finish.Passing()) {
                 // Transition to waiting period between phases.
-                this._awaitingNextPhase = true;
-                this.Pause();
+                _awaitingNextPhase = true;
+                Pause();
             } else if (this._pendingUpdates) {
                 // Phase updates.
-                float elapsedTime = (float) (DateTime.Now - this._startTime).TotalSeconds;
-                this.phases[this._currentPhase].Update(parent, elapsedTime);
+                float elapsedTime = (float) (DateTime.Now - _startTime).TotalSeconds;
+                Phases[_currentPhase].Update(parent, elapsedTime);
             }
         }
         public void Dispose() {
-            foreach (Phase ph in this.phases) {
+            foreach (Phase ph in Phases) {
                 ph.Dispose();
             }
-            if (this._clock != null) {
-                this._clock.Elapsed -= Tick;
-                this._clock.Dispose();
+            if (_clock != null) {
+                _clock.Elapsed -= Tick;
+                _clock.Dispose();
+            }
+            if (Icon != null) {
+                Icon.Dispose();
             }
         }
     }

@@ -5,46 +5,33 @@ using Blish_HUD.Controls;
 using Blish_HUD.Content;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
-using MonoGame.Extended.BitmapFonts;
-using temp.Timers.Models;
 using temp.Timers.Controls.Effects;
 
 namespace temp.Timers.Controls {
 
     public class AlertPanel : FlowPanel {
 
-        private const int DEFAULT_EVENTSUMMARY_WIDTH = 320;
-        private const int DEFAULT_EVENTSUMMARY_HEIGHT = 64;
-
-        #region Load Static
-
-        private static readonly Texture2D _textureFillCrest;
-        private static readonly Texture2D _textureVignette;
-        private static readonly BitmapFont _font;
-
-        static AlertPanel() {
-            _textureFillCrest = Content.GetTexture(@"controls/detailsbutton/605004");
-            _textureVignette = Content.GetTexture(@"controls/detailsbutton/605003");
-            _font = GameService.Content.GetFont(ContentService.FontFace.Menomonia, ContentService.FontSize.Size22,
-                ContentService.FontStyle.Regular);
-        }
-
-        #endregion
+        private const int ALERTPANEL_WIDTH = 320;
+        private const int ALERTPANEL_HEIGHT = 64;
 
         private AsyncTexture2D _icon;
         private float _maxFill;
         private float _currentFill;
-        private string _timerText;
-        private string _text;
         private Color _fillColor = Color.LightGray;
+        private string _text;
+        private Color _textColor = Color.White;
+        private string _timerText;
+        private Color _timerTextColor = Color.White;
         private readonly SimpleScrollingHighlightEffect _scrollEffect;
 
-        /// <summary>
-        /// The text displayed on the right side of the <see cref="DetailsButton"/>.
-        /// </summary>
         public string Text {
             get => _text;
             set => SetProperty(ref _text, value);
+        }
+
+        public Color TextColor {
+            get => _textColor;
+            set => SetProperty(ref _textColor, value);
         }
 
         public string TimerText {
@@ -52,38 +39,40 @@ namespace temp.Timers.Controls {
             set => SetProperty(ref _timerText, value);
         }
 
-        /// <summary>
-        /// The icon to display on the left side of the <see cref="DetailsButton"/>.
-        /// </summary>
+        public Color TimerTextColor {
+            get => _timerTextColor;
+            set => SetProperty(ref _timerTextColor, value);
+        }
+
         public AsyncTexture2D Icon {
             get => _icon;
             set => SetProperty(ref _icon, value);
         }
 
-        /// <summary>
-        /// The maximum the <see cref="CurrentFill"/> can be set to.  If <see cref="ShowVignette"/>
-        /// is true,then setting this value to a value greater than 0 will enable the fill.
-        /// </summary>
         public float MaxFill {
             get => _maxFill;
             set => SetProperty(ref _maxFill, value);
         }
 
-        /// <summary>
-        /// The current fill progress.  The maximum value is clamped to <see cref="MaxFill"/>.
-        /// </summary>
         public float CurrentFill {
             get => _currentFill;
             set {
                 if (SetProperty(ref _currentFill, Math.Min(value, _maxFill))) {
                     _animFill?.Cancel();
                     _animFill = null;
-                    _animFill = Animation.Tweener.Tween(this, new { DisplayedFill = _currentFill }, Encounter.TICKINTERVAL, 0, false);
+                    _animFill = Animation.Tweener.Tween(this, 
+                        new { DisplayedFill = _currentFill }, 
+                        TimersModule.ModuleInstance.Resources.TICKINTERVAL, 
+                        0, false);
                 }
-                if (_currentFill >= _maxFill) {
+                if (_currentFill >= _maxFill)
                     _scrollEffect.Enable();
-                }
             }
+        }
+
+        public Color FillColor {
+            get => _fillColor;
+            set => SetProperty(ref _fillColor, value);
         }
 
         /// <summary>
@@ -92,19 +81,10 @@ namespace temp.Timers.Controls {
         [EditorBrowsable(EditorBrowsableState.Never)]
         public float DisplayedFill { get; set; } = 0;
 
-        /// <summary>
-        /// The <see cref="Color"/> of the fill.
-        /// </summary>
-        public Color FillColor {
-            get => _fillColor;
-            set => SetProperty(ref _fillColor, value);
-        }
-
         private Glide.Tween _animFill;
 
-        public AlertPanel() {
-            this.Size = new Point(DEFAULT_EVENTSUMMARY_WIDTH, DEFAULT_EVENTSUMMARY_HEIGHT);
-
+        public AlertPanel () {
+            this.Size = new Point(ALERTPANEL_WIDTH, ALERTPANEL_HEIGHT);
             _scrollEffect = new SimpleScrollingHighlightEffect(this) {
                 Enabled = false
             };
@@ -121,22 +101,22 @@ namespace temp.Timers.Controls {
 
             // TODO: Move all calculations into RecalculateLayout()
 
+            bool minimalistMode = (TimersModule.ModuleInstance.AlertMode == AlertPanelMode.Minimalist);
+
             // Draw background
-            spriteBatch.DrawOnCtrl(this,
-                                   ContentService.Textures.Pixel,
-                                   bounds,
-                                   Color.Black * 0.2f);
+            if (!minimalistMode) {
+                spriteBatch.DrawOnCtrl(this,
+                                       ContentService.Textures.Pixel,
+                                       bounds,
+                                       Color.Black * 0.2f);
+            }
 
             int iconSize = _size.Y;
-
-            float fillPercent = _maxFill > 0
-                                    ? _currentFill / _maxFill
-                                    : 0f;
-
+            float fillPercent = (_maxFill > 0) ? (_currentFill / _maxFill) : 0f;
             float fillSpace = iconSize * fillPercent;
 
-            /*** Handle fill ***/
-            if (_maxFill > 0) {
+            // Handle fill 
+            if (_maxFill > 0 && !minimalistMode) {
 
                 // Draw icon twice
                 if (_icon != null) {
@@ -180,13 +160,10 @@ namespace temp.Timers.Controls {
 
                     // Only show the fill crest if we aren't full
                     if (fillPercent < 0.99f)
-                        spriteBatch.DrawOnCtrl(this, _textureFillCrest, new Rectangle(0, iconSize - (int)(fillSpace), iconSize, iconSize));
+                        spriteBatch.DrawOnCtrl(this, TimersModule.ModuleInstance.Resources.TextureFillCrest, new Rectangle(0, iconSize - (int)(fillSpace), iconSize, iconSize));
                 }
 
-                if (_timerText != null)
-                    spriteBatch.DrawStringOnCtrl(this, $"{this._timerText}", Content.DefaultFont32, new Rectangle(0, 0, iconSize, (int)(iconSize * 0.99f)), Color.White, false, true, 1, HorizontalAlignment.Center, VerticalAlignment.Middle);
-            
-            } else if (_icon != null) {
+            } else if (_icon != null && !minimalistMode) {
                 // Draw icon without any fill effects
                 spriteBatch.DrawOnCtrl(
                                        this,
@@ -198,12 +175,23 @@ namespace temp.Timers.Controls {
             }
 
             // Draw icon vignette (draw with or without the icon to keep a consistent look)
-            spriteBatch.DrawOnCtrl(this,
-                                    _textureVignette,
-                                    new Rectangle(0, 0, iconSize, iconSize));
+            if (!minimalistMode) {
+                spriteBatch.DrawOnCtrl(this,
+                                        TimersModule.ModuleInstance.Resources.TextureVignette,
+                                        new Rectangle(0, 0, iconSize, iconSize));
+            }
 
-            // Draw text
-            spriteBatch.DrawStringOnCtrl(this, _text, _font, new Rectangle(iconSize + 16, 0, _size.X - iconSize - 35, this.Height), Color.White, true, true);
+            // Draw time text
+            if (!string.IsNullOrEmpty(_timerText))
+                spriteBatch.DrawStringOnCtrl(this, $"{this._timerText}", Content.DefaultFont32, new Rectangle(0, 0, iconSize, (int)(iconSize * 0.99f)), this.TimerTextColor, false, true, 1, HorizontalAlignment.Center, VerticalAlignment.Middle);
+
+            // Draw alert text
+            spriteBatch.DrawStringOnCtrl(this, _text, TimersModule.ModuleInstance.Resources.Font, new Rectangle(iconSize + 16, 0, _size.X - iconSize - 35, this.Height), this.TextColor, true, true);
+        }
+
+        public void Dispose() {
+            _icon.Dispose();
+            base.Dispose();
         }
 
     }

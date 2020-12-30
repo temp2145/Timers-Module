@@ -19,9 +19,15 @@ using temp.Timers.Models;
 
 namespace temp.Timers
 {
-    public enum AlertOrientation {
+    public enum AlertPanelOrientation {
         Horizontal,
         Vertical
+    }
+
+    public enum AlertPanelMode {
+        Locked,
+        Unlocked,
+        Minimalist
     }
 
     [Export(typeof(Module))]
@@ -30,7 +36,6 @@ namespace temp.Timers
         private static readonly Logger Logger = Logger.GetLogger(typeof(TimersModule));
 
         internal static TimersModule ModuleInstance;
-        public static Resources Resources;
 
         #region Service Managers
         internal SettingsManager SettingsManager => this.ModuleParameters.SettingsManager;
@@ -39,35 +44,45 @@ namespace temp.Timers
         internal Gw2ApiManager Gw2ApiManager => this.ModuleParameters.Gw2ApiManager;
         #endregion
 
+        // Resources
+        public Resources Resources;
+
         // Configuration
         private const int COUNTDOWN_SIDE_MARGIN = 50;
         private const int COUNTDOWN_SIDE_TOP_MARGIN = 400;
         private const int COUNTDOWN_CENTER_TOP_MARGIN = 250;
 
-        private AlertContainer _timerPanel;
+        // Controls - UI
+        private WindowBase _alertWindow;
+        private AlertContainer _alertPanel;
         private Label _debug;
 
+        // Controls - Tab
         private WindowTab _timersTab;
         private Panel _tabPanel;
+        private List<DetailsButton> _displayedTimers;
 
+        // Settings
+        private SettingEntry<AlertPanelOrientation> _alertOrientation;
+        private SettingEntry<AlertPanelMode> _alertPanelMode;
+        private SettingEntry<bool> _alertPanelCenter;
+        private SettingEntry<bool> _showDirections;
+        private SettingEntry<bool> _showMarkers;
+        private SettingEntry<bool> _showDebug;
+        private SettingCollection _timerCollection;
+
+        // File reading
+        private DirectoryReader _directoryReader;
+        private PathableResourceManager _basePathableResourceManager;
+        private List<PathableResourceManager> _pathableResourceManagers;
+        private JsonSerializerOptions _jsonOptions;
+        private bool _encountersLoaded;
+        private bool _errorCaught;
+        // Model
         private List<Encounter> _encounters;
         private List<Encounter> _activeEncounters;
 
         private EventHandler<EventArgs> _onNewMapLoaded;
-
-        private SettingEntry<HorizontalAlignment> _timerAlignment;
-        private SettingEntry<bool> _showDebug;
-        private SettingCollection _timerCollection;
-
-        private DirectoryReader _directoryReader;
-        private PathableResourceManager _pathableResourceManager;
-
-        private Texture2D _textureWatch;
-        private Texture2D _textureWatchActive;
-        private List<DetailsButton> _displayedTimers;
-
-        private bool _encountersLoaded;
-        private bool _errorCaught;
 
         [ImportingConstructor]
         public TimersModule([Import("ModuleParameters")] ModuleParameters moduleParameters) : base(moduleParameters) 
@@ -77,7 +92,12 @@ namespace temp.Timers
 
         protected override void DefineSettings (SettingCollection settings)
         {
-            _timerAlignment = settings.DefineSetting("TimerAlignment", HorizontalAlignment.Center, "Timer Position", "Changes Screen Location of Timers");
+            _alertOrientation = settings.DefineSetting("AlertOrientation", AlertPanelOrientation.Horizontal, "Alert Panel Orientation", "The direction in which alerts in alert panel will stack.");
+            _alertPanelMode = settings.DefineSetting("AlertPanelMode", AlertPanelMode.Locked, "Alert Panel Mode", "Changes the presentation and interactibility of the alert panel.");
+            _alertPanelCenter = settings.DefineSetting("AlertPanelCenter", true, "Center Alert Panel", "The alert panel will always be centered to the middle of the screen.");
+            _showDirections = settings.DefineSetting("ShowDirections", true, "Show 3D Directions", "Directions are timed 3D trails that point the player to a certain location.");
+            _showMarkers = settings.DefineSetting("ShowMarkers", true, "Show 3D Markers", "Markers are timed 3D objects that represent points of interest.");
+
             _showDebug = settings.DefineSetting("ShowDebug", false, "Show Debug Text", "Placed in top-left corner. Displays any timer-reading errors otherwise displays location and in-combat status.");
             _timerCollection = settings.AddSubCollection("Watching");
         }
@@ -87,11 +107,21 @@ namespace temp.Timers
             // Singleton. Feels like a code smell. Plugging my nose now...
             Resources = new Resources();
 
-            _timerPanel = new AlertContainer {
+            // Basic controls
+            /*
+            _alertWindow = new AlertWindow {
+                Parent = GameService.Graphics.SpriteScreen,
+                Title = "Alerts",
+                Location = GameService.Graphics.SpriteScreen.Size / new Point(2)
+            };
+            */
+
+            _alertPanel = new AlertContainer {
                 Parent = GameService.Graphics.SpriteScreen,
                 ControlPadding = new Vector2(10, 10),
                 HeightSizingMode = SizingMode.AutoSize,
-                WidthSizingMode = SizingMode.AutoSize
+                WidthSizingMode = SizingMode.AutoSize,
+                Location = GameService.Graphics.SpriteScreen.Size / new Point(2)
             };
 
             _debug = new Label {
@@ -108,133 +138,190 @@ namespace temp.Timers
                 AutoSizeWidth = true
             };
 
-            _timerAlignment.SettingChanged += UpdateAlignment;
-            _showDebug.SettingChanged += UpdateDebug;
-            UpdateAlignment();
-            UpdateDebug();
-
+            // Instantiations
             _encounters = new List<Encounter>();
             _activeEncounters = new List<Encounter>();
             _displayedTimers = new List<DetailsButton>();
+            _pathableResourceManagers = new List<PathableResourceManager>();
 
-            _onNewMapLoaded = delegate {
-                CheckForEncounters();
-            };
-
+            // Bind setting listeners
+            _alertOrientation.SettingChanged += SettingsUpdateOrientation;
+            _alertPanelMode.SettingChanged += SettingsUpdateAlertMode;
+            _alertPanelCenter.SettingChanged += SettingsUpdateAlertCenter;
+            _showDirections.SettingChanged += SettingsUpdateShowDirections;
+            _showMarkers.SettingChanged += SettingsUpdateShowMarkers;
+            _showDebug.SettingChanged += SettingsUpdateShowDebug;
         }
+
+        #region Setting Handlers
+        public AlertPanelOrientation AlertOrientation {
+            get { return _alertOrientation.Value; }
+        }
+        public AlertPanelMode AlertMode {
+            get { return _alertPanelMode.Value; }
+        }
+        public bool AlertCenter {
+            get { return _alertPanelCenter.Value; }
+        }
+        public bool ShowDirections {
+            get { return _showDirections.Value; }
+        }
+        public bool ShowMarkers {
+            get { return _showMarkers.Value; }
+        }
+        public bool ShowDebug {
+            get { return _showDebug.Value; }
+        }
+        private void SettingsUpdateOrientation(object sender = null, EventArgs e = null) {
+            switch (_alertOrientation.Value) {
+                case AlertPanelOrientation.Vertical:
+                    _alertPanel.FlowDirection = ControlFlowDirection.SingleLeftToRight;
+                    break;
+                case AlertPanelOrientation.Horizontal:
+                default:
+                    _alertPanel.FlowDirection = ControlFlowDirection.SingleTopToBottom;
+                    break;
+            }
+        }
+
+        private void SettingsUpdateAlertMode(object sender = null, EventArgs e = null) {
+            switch (_alertPanelMode.Value) {
+                case AlertPanelMode.Locked:
+
+                    break;
+                case AlertPanelMode.Unlocked:
+
+                    break;
+                case AlertPanelMode.Minimalist:
+
+                    break;
+            }
+        }
+
+        private void SettingsUpdateAlertCenter(object sender = null, EventArgs e = null) {
+        }
+
+        private void SettingsUpdateShowDirections(object sender = null, EventArgs e = null) {
+        }
+
+        private void SettingsUpdateShowMarkers(object sender = null, EventArgs e = null) {
+        }
+
+        private void SettingsUpdateShowDebug(object sender = null, EventArgs e = null) {
+            if (_showDebug.Value)
+                _debug.Show();
+            else
+                _debug.Hide();
+        }
+        #endregion Setting Handlers
 
         protected override async Task LoadAsync ()
         {
-            _encounters.Clear();
+            // Load data
+            string timerDirectory = DirectoriesManager.GetFullDirectoryPath("timers");
+            _directoryReader = new DirectoryReader(timerDirectory);
+            _basePathableResourceManager = new PathableResourceManager(_directoryReader);
+            _pathableResourceManagers.Add(_basePathableResourceManager);
 
-            _textureWatch = ContentsManager.GetTexture(@"textures\605021.png");
-            _textureWatchActive = ContentsManager.GetTexture(@"textures\605019.png");
-
-            _directoryReader = new DirectoryReader(DirectoriesManager.GetFullDirectoryPath("timers"));
-            _pathableResourceManager = new PathableResourceManager(_directoryReader);
-
-            JsonSerializerOptions options = new JsonSerializerOptions {
+            _jsonOptions = new JsonSerializerOptions {
                 ReadCommentHandling = JsonCommentHandling.Skip,
-                AllowTrailingCommas = true
+                AllowTrailingCommas = true,
+                IgnoreNullValues = true
             };
 
+            // Load files directly
             _directoryReader.LoadOnFileType((Stream fileStream, IDataReader dataReader) => {
-
-                string jsonContent;
-                using (var jsonReader = new StreamReader(fileStream)) {
-                    jsonContent = jsonReader.ReadToEnd();
-                }
-
-                Encounter enc = null;
-                try {
-                    enc = JsonSerializer.Deserialize<Encounter>(jsonContent, options);
-                    enc.Init(_pathableResourceManager);
-                    _encounters.Add(enc);
-                }
-                catch (TimerReadException ex) {
-                    if (enc != null) enc.Dispose();
-                    _debug.Text = ex.Message;
-                    _errorCaught = true;
-                    Logger.Error("Timer parsing failure: " + ex.Message);
-                }
-                catch (Exception ex) {
-                    if (enc != null) enc.Dispose();
-                    _debug.Text = ex.Message;
-                    _errorCaught = true;
-                    Logger.Error("Deserialization failure: " + ex.Message);
-                }
-
+                readJson(fileStream, _basePathableResourceManager);
             }, ".bhtimer");
 
+            // Load ZIP files
+            List<string> zipFiles = new List<string>();
+            zipFiles.AddRange(Directory.GetFiles(timerDirectory, "*.zip", SearchOption.AllDirectories));
+
+            foreach (string zipFile in zipFiles) {
+                ZipArchiveReader zipDataReader = new ZipArchiveReader(zipFile);
+                PathableResourceManager zipResourceManager = new PathableResourceManager(zipDataReader);
+                _pathableResourceManagers.Add(zipResourceManager);
+                zipDataReader.LoadOnFileType((Stream fileStream, IDataReader dataReader) => {
+                    readJson(fileStream, zipResourceManager);
+                }, ".bhtimer");
+            }
+
+            // Final load tasks.
             // Is the above async? Can this be done sequentially?
             _encountersLoaded = true;
             _tabPanel = BuildSettingPanel(GameService.Overlay.BlishHudWindow.ContentRegion);
-            CheckForEncounters();
+            _onNewMapLoaded = delegate {
+                ResetActivatedEncounters();
+            };
+            ResetActivatedEncounters();
+        }
+
+        private void readJson (Stream fileStream, PathableResourceManager pathableResourceManager) {
+            string jsonContent;
+            using (var jsonReader = new StreamReader(fileStream)) {
+                jsonContent = jsonReader.ReadToEnd();
+            }
+
+            Encounter enc = null;
+            try {
+                enc = JsonSerializer.Deserialize<Encounter>(jsonContent, _jsonOptions);
+                enc.Init(pathableResourceManager);
+                _encounters.Add(enc);
+            }
+            catch (TimerReadException ex) {
+                if (enc != null) enc.Dispose();
+                _debug.Text = ex.Message;
+                _errorCaught = true;
+                Logger.Error("Timer parsing failure: " + ex.Message);
+            }
+            catch (Exception ex) {
+                if (enc != null) enc.Dispose();
+                _debug.Text = ex.Message;
+                _errorCaught = true;
+                Logger.Error("Deserialization failure: " + ex.Message);
+            }
         }
 
         protected override void OnModuleLoaded (EventArgs e)
         {
             GameService.Pathing.NewMapLoaded += _onNewMapLoaded;
-            _timersTab = GameService.Overlay.BlishHudWindow.AddTab("Timers", this.ContentsManager.GetTexture(@"textures\155035small.png"), _tabPanel);
+            _timersTab = GameService.Overlay.BlishHudWindow.AddTab("Timers", ContentsManager.GetTexture(@"textures\155035small.png"), _tabPanel);
             
             // Base handler must be called
             base.OnModuleLoaded(e);
         }
 
-        // Repositions countdown panel to the desired location.
-        private void UpdateAlignment (object sender = null, EventArgs e = null) {
-            switch (_timerAlignment.Value) {
-                case HorizontalAlignment.Left:
-                    _timerPanel.FlowDirection = ControlFlowDirection.SingleTopToBottom;
-                    _timerPanel.Location = new Point(COUNTDOWN_SIDE_MARGIN, COUNTDOWN_SIDE_TOP_MARGIN);
-                    break;
-                case HorizontalAlignment.Right:
-                    _timerPanel.FlowDirection = ControlFlowDirection.SingleTopToBottom;
-                    _timerPanel.Location = new Point(GameService.Graphics.SpriteScreen.Width - (300 + COUNTDOWN_SIDE_MARGIN), COUNTDOWN_SIDE_TOP_MARGIN);
-                    break;
-                default:
-                    _timerPanel.FlowDirection = ControlFlowDirection.SingleLeftToRight;
-                    _timerPanel.Location = new Point(GameService.Graphics.SpriteScreen.Width / 2, COUNTDOWN_CENTER_TOP_MARGIN);
-                    break;
-            }
-        }
-
-        private void UpdateDebug (object sender = null, EventArgs e = null) {
-            if (_showDebug.Value) {
-                _debug.Show();
-            } else {
-                _debug.Hide();
-            }
-        }
-
-        private void CheckForEncounters () {
+        private void ResetActivatedEncounters () {
             _activeEncounters.Clear();
             foreach (Encounter enc in _encounters) {
-                if (enc.map == GameService.Gw2Mumble.CurrentMap.Id &&
-                    enc.IsWatched) {
-                    if (!enc.Activated)
-                        enc.Activate();
+                if (enc.Map == GameService.Gw2Mumble.CurrentMap.Id &&
+                    enc.Enabled) {
+                    if (!enc.Active)
+                        enc.Active = true;
                     _activeEncounters.Add(enc);
                 } else {
-                    enc.Deactivate();
+                    enc.Active = false;
                 }
             }
         }
 
         private Panel BuildSettingPanel(Rectangle panelBounds) {
 
-            var markerPanel = new Panel {
+            // 1. Wrappers
+
+            Panel markerPanel = new Panel {
                 CanScroll = false,
                 Size = panelBounds.Size
             };
 
-            var searchBox = new TextBox {
+            TextBox searchBox = new TextBox {
                 Parent = markerPanel,
                 Location = new Point(Dropdown.Standard.ControlOffset.Y, Panel.MenuStandard.PanelOffset.X),
                 PlaceholderText = "Search"
             };
 
-            var menuSection = new Panel {
+            Panel menuSection = new Panel {
                 Parent = markerPanel,
                 Location = new Point(Panel.MenuStandard.PanelOffset.X, searchBox.Bottom + Panel.MenuStandard.ControlOffset.Y),
                 Size = Panel.MenuStandard.Size - new Point(0, Panel.MenuStandard.ControlOffset.Y),
@@ -244,7 +331,7 @@ namespace temp.Timers
 
             searchBox.Width = menuSection.Width;
 
-            var timerPanel = new FlowPanel {
+            FlowPanel timerPanel = new FlowPanel {
                 Parent = markerPanel,
                 Location = new Point(menuSection.Right + Panel.MenuStandard.ControlOffset.X, Panel.MenuStandard.PanelOffset.X),
                 Size = new Point(markerPanel.Right - menuSection.Right - Control.ControlStandard.ControlOffset.X, markerPanel.Height - Panel.MenuStandard.PanelOffset.X),
@@ -257,72 +344,93 @@ namespace temp.Timers
                 timerPanel.FilterChildren<TimerDetailsButton>(db => db.Text.ToLower().Contains(searchBox.Text.ToLower()));
             };
 
-            foreach (Encounter enc in this._encounters) {
+            // 2. Entries
 
-                var setting = _timerCollection.DefineSetting("watchTimer:" + enc.id, true);
-                enc.IsWatched = setting.Value;
+            foreach (Encounter enc in _encounters) {
 
-                var entry = new TimerDetailsButton {
+                SettingEntry<bool> setting = _timerCollection.DefineSetting("watchTimer:" + enc.Id, enc.Disabled);
+                enc.Enabled = setting.Value;
+
+                TimerDetailsButton entry = new TimerDetailsButton {
                     Parent = timerPanel,
-                    BasicTooltipText = enc.description,
+                    BasicTooltipText = "Category: " + enc.Category,
                     Encounter = enc,
-                    Text = enc.name,
-                    IconSize = DetailsIconSize.Large,
+                    Text = enc.Name,
+                    IconSize = DetailsIconSize.Small,
                     ShowVignette = false,
                     HighlightType = DetailsHighlightType.LightHighlight,
                     ShowToggleButton = true,
-                    ToggleState = enc.IsWatched,
-                    Icon = Resources.getIcon(enc.icon, "boss")
+                    ToggleState = enc.Enabled,
+                    Icon = enc.Icon
                 };
 
-                var toggleButton = new GlowButton {
-                    Icon = _textureWatch,
-                    ActiveIcon = _textureWatchActive,
+                if (!string.IsNullOrEmpty(enc.Description)) {
+                    GlowButton descButton = new GlowButton {
+                        Icon = Resources.TextureDescription,
+                        BasicTooltipText = enc.Description,
+                        Parent = entry
+                    };
+                }
+
+                if (!string.IsNullOrEmpty(enc.Author)) {
+                    GlowButton authButton = new GlowButton {
+                        Icon = Resources.TextureDescription,
+                        BasicTooltipText = "By: " + enc.Author,
+                        Parent = entry
+                    };
+                }
+
+                GlowButton toggleButton = new GlowButton {
+                    Icon = Resources.TextureEye,
+                    ActiveIcon = Resources.TextureEyeActive,
                     BasicTooltipText = "Click to toggle timer",
                     ToggleGlow = true,
-                    Checked = enc.IsWatched,
+                    Checked = enc.Enabled,
                     Parent = entry
                 };
 
                 toggleButton.Click += delegate {
-                    enc.IsWatched = toggleButton.Checked;
+                    enc.Enabled = toggleButton.Checked;
                     setting.Value = toggleButton.Checked;
                     entry.ToggleState = toggleButton.Checked;
-                    CheckForEncounters();
+                    ResetActivatedEncounters();
                 };
 
                 _displayedTimers.Add(entry);
+
             }
 
-            var timerCategories = new Menu {
+            // 3. Categories
+
+            Menu timerCategories = new Menu {
                 Size = menuSection.ContentRegion.Size,
                 MenuItemHeight = 40,
                 Parent = menuSection,
                 CanSelect = true
             };
 
-            List<IGrouping<string, Encounter>> categories = _encounters.GroupBy(e => e.category).ToList();
+            List<IGrouping<string, Encounter>> categories = _encounters.GroupBy(enc => enc.Category).ToList();
 
-            var timerAll = timerCategories.AddMenuItem("All Timers");
+            MenuItem timerAll = timerCategories.AddMenuItem("All Timers");
             timerAll.Select();
             timerAll.Click += delegate {
                 timerPanel.FilterChildren<TimerDetailsButton>(db => true);
             };
 
-            var timerActive = timerCategories.AddMenuItem("Active Timers");
+            MenuItem timerActive = timerCategories.AddMenuItem("Enabled Timers");
             timerActive.Click += delegate {
-                timerPanel.FilterChildren<TimerDetailsButton>(db => db.Encounter.IsWatched);
+                timerPanel.FilterChildren<TimerDetailsButton>(db => db.Encounter.Enabled);
             };
 
-            var timerMap = timerCategories.AddMenuItem("Current Map");
+            MenuItem timerMap = timerCategories.AddMenuItem("Current Map");
             timerMap.Click += delegate {
-                timerPanel.FilterChildren<TimerDetailsButton>(db => (db.Encounter.map == GameService.Gw2Mumble.CurrentMap.Id));
+                timerPanel.FilterChildren<TimerDetailsButton>(db => (db.Encounter.Map == GameService.Gw2Mumble.CurrentMap.Id));
             };
 
             foreach (IGrouping<string, Encounter> category in categories) {
-                var cat = timerCategories.AddMenuItem(category.Key);
+                MenuItem cat = timerCategories.AddMenuItem(category.Key);
                 cat.Click += delegate {
-                    timerPanel.FilterChildren<TimerDetailsButton>(db => string.Equals(db.Encounter.category, category.Key));
+                    timerPanel.FilterChildren<TimerDetailsButton>(db => string.Equals(db.Encounter.Category, category.Key));
                 };
             }
 
@@ -333,7 +441,7 @@ namespace temp.Timers
 
             if (_encountersLoaded) {
 
-                if (!_errorCaught) {
+                if (!_errorCaught && _debug.Visible) {
                     _debug.Text = "Debug: " +
                         GameService.Gw2Mumble.PlayerCharacter.Position.X.ToString("0.0") + " " +
                         GameService.Gw2Mumble.PlayerCharacter.Position.Y.ToString("0.0") + " " +
@@ -341,15 +449,15 @@ namespace temp.Timers
                         GameService.Gw2Mumble.PlayerCharacter.IsInCombat.ToString();
                 }
 
-                foreach (Encounter enc in _activeEncounters) {
-                    enc.Update(_timerPanel);
-                }
+                _activeEncounters.ForEach(enc => enc.Update(_alertPanel));
 
-                if (_timerAlignment.Value == HorizontalAlignment.Center) {
-                    _timerPanel.Location = new Point(
-                        GameService.Graphics.SpriteScreen.Width / 2 - _timerPanel.Width / 2,
-                        COUNTDOWN_CENTER_TOP_MARGIN);
+                /*
+                if (AlertCenter) {
+                    _alertWindow.Location = new Point(
+                        GameService.Graphics.SpriteScreen.Width / 2 - _alertWindow.Width / 2,
+                        _alertWindow.Top);
                 }
+                */
 
             }
         }
@@ -358,26 +466,38 @@ namespace temp.Timers
         protected override void Unload()
         {
             // Unload here
+            // Deregister event handlers
             GameService.Pathing.NewMapLoaded -= _onNewMapLoaded;
+            _alertOrientation.SettingChanged -= SettingsUpdateOrientation;
+            _alertPanelMode.SettingChanged -= SettingsUpdateAlertMode;
+            _alertPanelCenter.SettingChanged -= SettingsUpdateAlertCenter;
+            _showDirections.SettingChanged -= SettingsUpdateShowDirections;
+            _showMarkers.SettingChanged -= SettingsUpdateShowMarkers;
+            _showDebug.SettingChanged -= SettingsUpdateShowDebug;
 
+            // Cleanup tab
             GameService.Overlay.BlishHudWindow.RemoveTab(_timersTab);
             _tabPanel.Dispose();
-            
             _displayedTimers.ForEach(de => de.Dispose());
             _displayedTimers.Clear();
 
-            foreach (Encounter enc in _encounters) {
-                enc.Dispose();
-            }
+            // Cleanup model
+            _encounters.ForEach(enc => enc.Dispose());
+
+            // Cleanup readers and resource managers
             _directoryReader.Dispose();
-            _pathableResourceManager.Dispose();
-            _timerPanel.Dispose();
+            _pathableResourceManagers.ForEach(GameService.Pathing.UnregisterPathableResourceManager);
+            _pathableResourceManagers.ForEach(m => m.Dispose());
+            _basePathableResourceManager = null;
+
+            // Cleanup leftover UI
+            // _alertWindow.Dispose();
+            _alertPanel.Dispose();
             _debug.Dispose();
 
+            Resources.Dispose();
 
             // All static members must be manually unset
-            Resources.Unload();
-            Resources = null;
             ModuleInstance = null;
         }
 

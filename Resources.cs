@@ -1,12 +1,27 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using Blish_HUD;
 using Blish_HUD.Content;
 using Microsoft.Xna.Framework.Graphics;
+using MonoGame.Extended.BitmapFonts;
+using Microsoft.Xna.Framework;
 
 namespace temp.Timers {
-    public class Resources {
+    public class Resources : IDisposable {
 
+        // Config
+        public readonly int TICKRATE = 100;
+        public readonly float TICKINTERVAL;
+
+        // Assets
         public readonly Effect MasterScrollEffect;
+        public readonly Texture2D TextureFillCrest;
+        public readonly Texture2D TextureVignette;
+        public readonly BitmapFont Font;
+        public readonly Texture2D TextureEye;
+        public readonly Texture2D TextureEyeActive;
+        public readonly Texture2D TextureDescription;
+
         private readonly string[,] icons = {
             { "raid", "9F5C23543CB8C715B7022635C10AA6D5011E74B3/1302679" },
             { "boss", "7554DCAF5A1EA1BDF5297352A203AF2357BE2B5B/498983" },
@@ -32,18 +47,32 @@ namespace temp.Timers {
         private const string DEFAULT_ICON = "raid";
 
         public Resources () {
+            TICKINTERVAL = (float) (TICKRATE / 1000.0f); ;
+
             MasterScrollEffect = ContentService.Content.ContentManager.Load<Effect>(@"effects\menuitem");
             MasterScrollEffect.Parameters["Mask"].SetValue(GameService.Content.GetTexture("156072"));
             MasterScrollEffect.Parameters["Overlay"].SetValue(GameService.Content.GetTexture("156071"));
 
+            TextureFillCrest = GameService.Content.GetTexture(@"controls/detailsbutton/605004");
+            TextureVignette = GameService.Content.GetTexture(@"controls/detailsbutton/605003");
+            Font = GameService.Content.GetFont(ContentService.FontFace.Menomonia, ContentService.FontSize.Size22,
+                ContentService.FontStyle.Regular);
+
+            TextureEye = TimersModule.ModuleInstance.ContentsManager.GetTexture(@"textures\605021.png");
+            TextureEyeActive = TimersModule.ModuleInstance.ContentsManager.GetTexture(@"textures\605019.png");
+            TextureDescription = GameService.Content.GetTexture("102530");
+
             _iconFiles = new Dictionary<string, AsyncTexture2D>();
+            GetIcon(DEFAULT_ICON);
         }
 
-        public AsyncTexture2D getIcon (string name, string unset = DEFAULT_ICON) {
-            if (name == "null") return null;
-            if (unset == "" || unset == null) unset = DEFAULT_ICON;
-            if (name == "" || name == null) name = unset;
-            else name = name.Trim().ToLower();
+        public AsyncTexture2D GetIcon () {
+            return GetIcon(DEFAULT_ICON);
+        }
+
+        public AsyncTexture2D GetIcon (string name) {
+
+            name = name.Trim().ToLower();
 
             AsyncTexture2D value;
             if (_iconFiles.TryGetValue(name, out value)) {
@@ -56,13 +85,47 @@ namespace temp.Timers {
                         return value;
                     }
                 }
-                return getIcon(DEFAULT_ICON);
+                return null;
             }
         }
 
-        public void Unload() {
+        public Texture2D GetTexture () {
+            return GetIcon(DEFAULT_ICON).Texture;
+        }
+
+        public Texture2D GetTexture (string name) {
+            AsyncTexture2D icon = GetIcon(name);
+            if (icon == null)
+                icon = GetIcon(DEFAULT_ICON);
+            return icon.Texture;
+        }
+
+        // Static Utility Functions
+        public static Color ParseColor (float r, float g, float b, float a = 1.0f) {
+            if (r > 1.0f) r = (Math.Min(255f, r) / 255f);
+            if (g > 1.0f) g = (Math.Min(255f, g) / 255f);
+            if (b > 1.0f) b = (Math.Min(255f, b) / 255f);
+            return new Color(r, g, b, a);
+        }
+
+        public static Color ParseColor (Color previousColor, List<float> values) {
+            if (values?.Count == 3) {
+                return ParseColor(values[0], values[1], values[2]);
+            } else if (values?.Count == 4) {
+                return ParseColor(values[0], values[1], values[2], values[3]);
+            } else {
+                return previousColor;
+            }
+        }
+
+        public void Dispose() {
             // EXCEPTION: "The GraphicsDevice must not be null when creating new resources."
-            // MasterScrollEffect.Dispose();
+            MasterScrollEffect.Dispose();
+            TextureFillCrest.Dispose();
+            TextureVignette.Dispose();
+            TextureEye.Dispose();
+            TextureEyeActive.Dispose();
+            TextureDescription.Dispose();
             foreach (AsyncTexture2D icon in _iconFiles.Values) {
                 icon.Dispose();
             }

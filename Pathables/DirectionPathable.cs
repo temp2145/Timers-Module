@@ -25,8 +25,16 @@ namespace temp.Timers.Pathables {
         }
 
         public Vector3 Destination {
-            get => this._destination;
-            set => this._destination = value;
+            get => _destination;
+            set => _destination = value;
+        }
+
+        public override bool Active {
+            get { return base.Active; }
+            set {
+                base.Active = value;
+                _trailSection.Active = value;
+            }
         }
 
         private readonly PathableAttributeCollection _sourceAttributes;
@@ -85,14 +93,6 @@ namespace temp.Timers.Pathables {
                 return true;
             });
 
-        }
-
-        public void Activate() {
-            _trailSection.Active = true;
-        }
-
-        public void Deactivate() {
-            _trailSection.Active = false;
         }
 
         protected override bool FinalizeAttributes(Dictionary<string, LoadedPathableAttributeDescription> attributeLoaders) {

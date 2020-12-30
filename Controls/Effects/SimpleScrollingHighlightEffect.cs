@@ -63,7 +63,7 @@ namespace temp.Timers.Controls.Effects {
         private bool _active = false;
 
         public SimpleScrollingHighlightEffect(Control assignedControl) : base(assignedControl) {
-            _scrollEffect = TimersModule.Resources.MasterScrollEffect.Clone();
+            _scrollEffect = TimersModule.ModuleInstance.Resources.MasterScrollEffect.Clone();
             _scrollEffect.Parameters[SPARAM_MASK].SetValue(GameService.Content.GetTexture("156072"));
             _scrollEffect.Parameters[SPARAM_OVERLAY].SetValue(GameService.Content.GetTexture("156071"));
             _scrollEffect.Parameters[SPARAM_OPACITY].SetValue(assignedControl.Opacity);

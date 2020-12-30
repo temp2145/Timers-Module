@@ -1,55 +1,61 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Text.Json.Serialization;
 using Blish_HUD.Pathing.Content;
 using temp.Timers.Controls;
 
 namespace temp.Timers.Models {
     public class Phase : IDisposable {
-        public string name { get; set; }
-        public StartTrigger start { get; set; }
-        public EndTrigger finish { get; set; }
-        public List<AlertType> alerts { get; set; }
-        public List<Direction> directions { get; set; }
-        public List<Marker> markers { get; set; }
-        // Non-serialized
-        private List<Alert> _alerts { get; set; }
+
+        // Serialized Properties
+        [JsonPropertyName("name")]
+        public string Name { get; set; } = "Unnamed Phase";
+        [JsonPropertyName("start")]
+        public StartTrigger Start { get; set; }
+        [JsonPropertyName("finish")]
+        public EndTrigger Finish { get; set; }
+        [JsonPropertyName("alerts")]
+        public List<AlertType> AlertTypes { get; set; }
+        [JsonPropertyName("directions")]
+        public List<Direction> Directions { get; set; } = new List<Direction>();
+        [JsonPropertyName("markers")]
+        public List<Marker> Markers { get; set; } = new List<Marker>();
+
+        // Private members
+        private List<Alert> _alerts { get; set; } = new List<Alert>();
+
+        // Methods
         public string Init(PathableResourceManager pathableResourceManager) {
 
             // Validation
-            if (start == null) return "phase missing start trigger";
-            string message = start.Init();
+            if (Start == null) return "phase missing start trigger";
+
+            string message = Start.Init();
             if (message != null) return message;
-            if (finish != null) {
-                message = finish.Init();
+
+            if (Finish != null) {
+                message = Finish.Init();
                 if (message != null) return message;
             }
 
             // Validation & Initialization
-            this._alerts = new List<Alert>();
-
-            foreach (AlertType type in this.alerts) {
-                message = type.Init();
+            foreach (AlertType type in AlertTypes) {
+                message = type.Init(pathableResourceManager);
                 if (message != null) return message;
-                foreach (float time in type.timestamps) {
-                    this._alerts.Add(new Alert {
-                        time = time,
-                        source = type
+                foreach (float time in type.Timestamps) {
+                    _alerts.Add(new Alert {
+                        Time = time,
+                        Source = type
                     });
                 }
             }
 
-            if (this.directions == null)
-                this.directions = new List<Direction>();
-
-            foreach (Direction dir in this.directions) {
+            foreach (Direction dir in Directions) {
                 message = dir.Init(pathableResourceManager);
                 if (message != null) return message;
             }
 
-            if (this.markers == null)
-                this.markers = new List<Marker>();
-
-            foreach (Marker mark in this.markers) {
+            foreach (Marker mark in Markers) {
                 message = mark.Init(pathableResourceManager);
                 if (message != null) return message;
             }
@@ -57,46 +63,28 @@ namespace temp.Timers.Models {
             return null;
         }
         public void Activate() {
-            foreach (Direction dir in this.directions) {
-                dir.Activate();
-            }
-            foreach (Marker mark in this.markers) {
-                mark.Activate();
-            }
+            Directions.ForEach(dir => dir.Activate());
+            Markers.ForEach(mark => mark.Activate());
         }
         public void Deactivate() {
-            foreach (Direction dir in this.directions) {
-                dir.Deactivate();
-            }
-            foreach (Marker mark in this.markers) {
-                mark.Deactivate();
-            }
+            _alerts.ForEach(al => al.Deactivate());
+            Directions.ForEach(dir => dir.Deactivate());
+            Markers.ForEach(mark => mark.Deactivate());
         }
         public void Update(AlertContainer parent, float elapsedTime) {
-            foreach (Alert al in this._alerts) {
-                al.Update(parent, elapsedTime);
-            }
-            foreach (Direction dir in this.directions) {
-                dir.Update(elapsedTime);
-            }
-            foreach (Marker mark in this.markers) {
-                mark.Update(elapsedTime);
-            }
+            _alerts.ForEach(al => al.Update(parent, elapsedTime));
+            Directions.ForEach(dir => dir.Update(elapsedTime));
+            Markers.ForEach(mark => mark.Update(elapsedTime));
         }
         public void Stop() {
-            foreach (Alert al in this._alerts) {
-                al.Stop();
-            }
-            foreach (Direction dir in this.directions) {
-                dir.Stop();
-            }
-            foreach (Marker mark in this.markers) {
-                mark.Stop();
-            }
+            _alerts.ForEach(al => al.Stop());
+            Directions.ForEach(dir => dir.Stop());
+            Markers.ForEach(mark => mark.Stop());
         }
         public void Dispose() {
-            this.Deactivate();
             this.Stop();
+            this.Deactivate();
+            AlertTypes.ForEach(at => at.Dispose());
         }
     }
 

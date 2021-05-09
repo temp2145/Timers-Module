@@ -44,14 +44,12 @@ namespace temp.Timers.Models {
         [JsonIgnore]
         public bool Enabled { get; set; }
         [JsonIgnore]
-        public bool Active { 
-            get { return _active; }
+        public bool Activated { 
+            get { return _activated; }
             set {
-                _active = value;
+                _activated = value;
                 if (value) {
-                    foreach (Phase ph in Phases) {
-                        ph.Activate();
-                    }
+                    Phases.ForEach(ph => ph.Activate());
                     if (_clock != null) {
                         _clock.Elapsed -= Tick;
                         _clock.Dispose();
@@ -61,23 +59,28 @@ namespace temp.Timers.Models {
                     _clock.AutoReset = true;
                     _clock.Elapsed += Tick;
                 } else {
-                    foreach (Phase ph in Phases) {
-                        ph.Deactivate();
-                    }
                     Stop();
+                    Phases.ForEach(ph => ph.Deactivate());
                     if (_clock != null) {
                         _clock.Elapsed -= Tick;
                         _clock.Dispose();
                         _clock = null;
                     }
                 }
-            } }
+            } 
+        }
+        [JsonIgnore]
+        public bool Active {
+            get { return _active; }
+            set { _active = value; }
+        }
         [JsonIgnore]
         public AsyncTexture2D Icon { get; set; }
 
 
         // Private members
         private bool _active { get; set; }
+        private bool _activated { get; set; }
         private bool _pendingUpdates { get; set; }
         private bool _awaitingNextPhase { get; set; }
         private int _currentPhase { get; set; }
@@ -108,11 +111,10 @@ namespace temp.Timers.Models {
                 Icon = pathableResourceManager.LoadTexture(IconString);
         }
 
-
         // Private Methods
         private bool ShouldStart () {
             // Check if already active.
-            if (Active) return false;
+            if (_active) return false;
 
             // Double-check map. Should be unnecessary.
             if (Map != GameService.Gw2Mumble.CurrentMap.Id) 
@@ -124,7 +126,7 @@ namespace temp.Timers.Models {
         }
         private bool ShouldStop () {
             // Check if already inactive.
-            if (!Active) return false;
+            if (!_active) return false;
 
             // Double-check map. Should be unnecessary.
             if (Map != GameService.Gw2Mumble.CurrentMap.Id)
@@ -194,15 +196,19 @@ namespace temp.Timers.Models {
             }
         }
         public void Dispose() {
+            Active = false;
             foreach (Phase ph in Phases) {
                 ph.Dispose();
             }
+            Phases.Clear();
             if (_clock != null) {
                 _clock.Elapsed -= Tick;
                 _clock.Dispose();
+                _clock = null;
             }
             if (Icon != null) {
                 Icon.Dispose();
+                Icon = null;
             }
         }
     }

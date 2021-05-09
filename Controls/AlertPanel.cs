@@ -189,7 +189,7 @@ namespace temp.Timers.Controls {
             spriteBatch.DrawStringOnCtrl(this, _text, TimersModule.ModuleInstance.Resources.Font, new Rectangle(iconSize + 16, 0, _size.X - iconSize - 35, this.Height), this.TextColor, true, true);
         }
 
-        public void Dispose() {
+        public new void Dispose() {
             _icon.Dispose();
             base.Dispose();
         }

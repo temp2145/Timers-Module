@@ -14,6 +14,8 @@ namespace temp.Timers.Models {
         public string Name { get; set; } = "Unnamed Direction";
         [JsonPropertyName("position")]
         public List<float> Position { get; set; }
+        [JsonPropertyName("destination")]
+        public List<float> Destination { set { Position = value; } }
         [JsonPropertyName("duration")]
         public float Duration { get; set; } = 10f;
         [JsonPropertyName("alpha")]
@@ -62,19 +64,22 @@ namespace temp.Timers.Models {
         }
         public void Activate() {
             if (_pathable != null) {
-                _pathable.Active = true;
                 GameService.Pathing.RegisterPathable(_pathable);
+                _pathable.Active = true;
             }
         }
         public void Deactivate() {
             if (_pathable != null) {
-                _pathable.Active = false;
                 GameService.Pathing.UnregisterPathable(_pathable);
+                _pathable.Active = false;
             }
         }
         public void Stop() {
-            if (_pathable != null)
+            if (_pathable != null) {
                 _pathable.ManagedEntity.Visible = false;
+                _pathable.Updating = false;
+            }
+
         }
         public void Update(float elapsedTime) {
 
@@ -85,6 +90,7 @@ namespace temp.Timers.Models {
                 if (elapsedTime >= time && elapsedTime < time + Duration) {
                     enabled = true;
                     _pathable.ManagedEntity.Visible = true;
+                    _pathable.Updating = true;
                 }
             }
             if (!enabled) Stop();

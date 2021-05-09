@@ -27,7 +27,7 @@ In JSON:
 	"icon": "raid",								/* Timer icon. Shown in timer panel. Preset icons listed below. Custom files coming soon. */
 	"map": 1000,								/* [Required] Map ID (provided by API) where timer is active. */
 	"reset": {									/* [Required] Global trigger to hard-reset this timer regardless of phase. */
-		"position": [ 100, 200, 300 ]			/* X, Y, Z origin of reset trigger, extends radius distance. */
+		"position": [ 100, 200, 300 ],			/* X, Y, Z origin of reset trigger, extends radius distance. */
 		"radius": 100,
 		"requireOutOfCombat": true,				/* If true, must no longer be in combat for timer to reset. */
 		"requireDeparture": true				/* If true, must no longer be in reset trigger area for timer to reset. */
@@ -141,3 +141,8 @@ v0.1.1
 v0.1.2
 * [feature] timer management tab/panel 
 * [feature] canned custom icons for alerts and timers
+
+v0.1.3
+* [change] directions json entry can use "position" or "destination"
+* [feature] user-defined custom icons for alerts and timers
+* [feature] alert window

@@ -25,9 +25,11 @@ namespace temp.Timers
     }
 
     public enum AlertPanelMode {
-        Locked,
-        Unlocked,
-        Minimalist
+        Draggable,
+        Fixed,
+        Windowless,
+        Minimalist,
+        Hidden
     }
 
     [Export(typeof(Module))]
@@ -53,7 +55,7 @@ namespace temp.Timers
         private const int COUNTDOWN_CENTER_TOP_MARGIN = 250;
 
         // Controls - UI
-        private WindowBase _alertWindow;
+        private AlertWindow _alertWindow;
         private AlertContainer _alertPanel;
         private Label _debug;
 
@@ -78,6 +80,7 @@ namespace temp.Timers
         private JsonSerializerOptions _jsonOptions;
         private bool _encountersLoaded;
         private bool _errorCaught;
+
         // Model
         private List<Encounter> _encounters;
         private List<Encounter> _activeEncounters;
@@ -92,14 +95,14 @@ namespace temp.Timers
 
         protected override void DefineSettings (SettingCollection settings)
         {
-            _alertOrientation = settings.DefineSetting("AlertOrientation", AlertPanelOrientation.Horizontal, "Alert Panel Orientation", "The direction in which alerts in alert panel will stack.");
-            _alertPanelMode = settings.DefineSetting("AlertPanelMode", AlertPanelMode.Locked, "Alert Panel Mode", "Changes the presentation and interactibility of the alert panel.");
-            _alertPanelCenter = settings.DefineSetting("AlertPanelCenter", true, "Center Alert Panel", "The alert panel will always be centered to the middle of the screen.");
+            _alertOrientation = settings.DefineSetting("AlertOrientation", AlertPanelOrientation.Horizontal, "Alert Panel Orientation", "The direction alerts in the alert panel will stack.");
+            _alertPanelMode = settings.DefineSetting("AlertPanelMode", AlertPanelMode.Fixed, "Alert Panel Mode", "Changes the presentation and interactibility of the alert panel.");
+            _alertPanelCenter = settings.DefineSetting("AlertPanelCenter", true, "Center Alert Panel", "Automatically centers the alert panel to the middle of the screen horizontally.");
             _showDirections = settings.DefineSetting("ShowDirections", true, "Show 3D Directions", "Directions are timed 3D trails that point the player to a certain location.");
             _showMarkers = settings.DefineSetting("ShowMarkers", true, "Show 3D Markers", "Markers are timed 3D objects that represent points of interest.");
 
-            _showDebug = settings.DefineSetting("ShowDebug", false, "Show Debug Text", "Placed in top-left corner. Displays any timer-reading errors otherwise displays location and in-combat status.");
-            _timerCollection = settings.AddSubCollection("Watching");
+            _showDebug = settings.DefineSetting("ShowDebug", false, "Show Debug Text", "For creating timers. Placed in top-left corner. Displays any timer-reading errors otherwise displays location and in-combat status.");
+            _timerCollection = settings.AddSubCollection("EnabledTimers", false);
         }
 
         protected override void Initialize ()
@@ -108,20 +111,17 @@ namespace temp.Timers
             Resources = new Resources();
 
             // Basic controls
-            /*
             _alertWindow = new AlertWindow {
                 Parent = GameService.Graphics.SpriteScreen,
                 Title = "Alerts",
-                Location = GameService.Graphics.SpriteScreen.Size / new Point(2)
+                // Emblem = Resources.TextureTimerEmblem,
             };
-            */
 
             _alertPanel = new AlertContainer {
-                Parent = GameService.Graphics.SpriteScreen,
-                ControlPadding = new Vector2(10, 10),
-                HeightSizingMode = SizingMode.AutoSize,
+                Parent = _alertWindow,
+                ControlPadding = new Vector2(10, 10), 
                 WidthSizingMode = SizingMode.AutoSize,
-                Location = GameService.Graphics.SpriteScreen.Size / new Point(2)
+                HeightSizingMode = SizingMode.AutoSize
             };
 
             _debug = new Label {
@@ -297,13 +297,17 @@ namespace temp.Timers
             foreach (Encounter enc in _encounters) {
                 if (enc.Map == GameService.Gw2Mumble.CurrentMap.Id &&
                     enc.Enabled) {
-                    if (!enc.Active)
-                        enc.Active = true;
+                    if (!enc.Activated)
+                        enc.Activated = true;
                     _activeEncounters.Add(enc);
                 } else {
-                    enc.Active = false;
+                    enc.Activated = false;
                 }
             }
+            if (_activeEncounters.Count > 0)
+                _alertWindow.Show();
+            else
+                _alertWindow.Hide();
         }
 
         private Panel BuildSettingPanel(Rectangle panelBounds) {
@@ -353,7 +357,6 @@ namespace temp.Timers
 
                 TimerDetailsButton entry = new TimerDetailsButton {
                     Parent = timerPanel,
-                    BasicTooltipText = "Category: " + enc.Category,
                     Encounter = enc,
                     Text = enc.Name,
                     IconSize = DetailsIconSize.Small,
@@ -442,22 +445,21 @@ namespace temp.Timers
             if (_encountersLoaded) {
 
                 if (!_errorCaught && _debug.Visible) {
+
                     _debug.Text = "Debug: " +
                         GameService.Gw2Mumble.PlayerCharacter.Position.X.ToString("0.0") + " " +
                         GameService.Gw2Mumble.PlayerCharacter.Position.Y.ToString("0.0") + " " +
                         GameService.Gw2Mumble.PlayerCharacter.Position.Z.ToString("0.0") + " " +
-                        GameService.Gw2Mumble.PlayerCharacter.IsInCombat.ToString();
+                        _activeEncounters.Count.ToString();
                 }
 
                 _activeEncounters.ForEach(enc => enc.Update(_alertPanel));
 
-                /*
                 if (AlertCenter) {
                     _alertWindow.Location = new Point(
                         GameService.Graphics.SpriteScreen.Width / 2 - _alertWindow.Width / 2,
                         _alertWindow.Top);
                 }
-                */
 
             }
         }
@@ -482,7 +484,9 @@ namespace temp.Timers
             _displayedTimers.Clear();
 
             // Cleanup model
+            _activeEncounters.Clear();
             _encounters.ForEach(enc => enc.Dispose());
+            _encounters.Clear();
 
             // Cleanup readers and resource managers
             _directoryReader.Dispose();
@@ -491,8 +495,8 @@ namespace temp.Timers
             _basePathableResourceManager = null;
 
             // Cleanup leftover UI
-            // _alertWindow.Dispose();
             _alertPanel.Dispose();
+            _alertWindow.Dispose();
             _debug.Dispose();
 
             Resources.Dispose();

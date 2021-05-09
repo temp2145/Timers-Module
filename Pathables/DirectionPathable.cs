@@ -29,10 +29,9 @@ namespace temp.Timers.Pathables {
             set => _destination = value;
         }
 
-        public override bool Active {
-            get { return base.Active; }
+        public bool Updating {
+            get { return _trailSection.Active; }
             set {
-                base.Active = value;
                 _trailSection.Active = value;
             }
         }

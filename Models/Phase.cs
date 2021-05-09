@@ -82,9 +82,13 @@ namespace temp.Timers.Models {
             Markers.ForEach(mark => mark.Stop());
         }
         public void Dispose() {
-            this.Stop();
-            this.Deactivate();
+            Stop();
+            Deactivate();
             AlertTypes.ForEach(at => at.Dispose());
+            Directions.Clear();
+            Markers.Clear();
+            _alerts.Clear();
+            AlertTypes.Clear();
         }
     }
 

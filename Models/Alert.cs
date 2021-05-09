@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Text.Json.Serialization;
+using Blish_HUD;
 using Blish_HUD.Content;
 using Blish_HUD.Controls;
 using Blish_HUD.Pathing.Content;
@@ -25,7 +26,7 @@ namespace temp.Timers.Models {
         [JsonPropertyName("alertColor")]
         public List<float> AlertTextColor { get; set; }
         [JsonPropertyName("icon")]
-        public string IconString { get; set; } = "onepath";
+        public string IconString { get; set; } = "raid";
         [JsonPropertyName("fillColor")]
         public List<float> FillColor { get; set; }
         [JsonPropertyName("timestamps")]
@@ -55,7 +56,7 @@ namespace temp.Timers.Models {
             AlertColor = Resources.ParseColor(AlertColor, AlertTextColor);
 
             Icon = TimersModule.ModuleInstance.Resources.GetIcon(IconString);
-            if (Icon == null)
+            if (Icon == null) 
                 Icon = pathableResourceManager.LoadTexture(IconString);
 
             return null;
@@ -76,7 +77,7 @@ namespace temp.Timers.Models {
                 Parent = parent,
                 Text = (string.IsNullOrEmpty(Source.WarningText)) ? Source.AlertText : Source.WarningText,
                 TextColor = Source.WarningColor,
-                Icon = Source.Icon,
+                Icon = Texture2DExtension.Duplicate(Source.Icon),
                 MaxFill = Source.WarningDuration,
                 CurrentFill = 0.0f,
                 FillColor = Source.Fill

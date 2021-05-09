@@ -21,6 +21,13 @@ namespace temp.Timers {
         public readonly Texture2D TextureEye;
         public readonly Texture2D TextureEyeActive;
         public readonly Texture2D TextureDescription;
+        public readonly Texture2D TextureTimerEmblem;
+        public readonly Texture2D WindowTitleBarLeft;
+        public readonly Texture2D WindowTitleBarRight;
+        public readonly Texture2D WindowTitleBarLeftActive;
+        public readonly Texture2D WindowTitleBarRightActive;
+        public readonly Texture2D WindowCorner;
+        public readonly Texture2D WindowBackground;
 
         private readonly string[,] icons = {
             { "raid", "9F5C23543CB8C715B7022635C10AA6D5011E74B3/1302679" },
@@ -60,7 +67,15 @@ namespace temp.Timers {
 
             TextureEye = TimersModule.ModuleInstance.ContentsManager.GetTexture(@"textures\605021.png");
             TextureEyeActive = TimersModule.ModuleInstance.ContentsManager.GetTexture(@"textures\605019.png");
+            TextureTimerEmblem = TimersModule.ModuleInstance.ContentsManager.GetTexture(@"textures\841720.png");
             TextureDescription = GameService.Content.GetTexture("102530");
+
+            WindowTitleBarLeft = GameService.Content.GetTexture("titlebar-inactive");
+            WindowTitleBarRight = GameService.Content.GetTexture("window-topright");
+            WindowTitleBarLeftActive = GameService.Content.GetTexture("titlebar-active");
+            WindowTitleBarRightActive = GameService.Content.GetTexture("window-topright-active");
+            WindowCorner = GameService.Content.GetTexture(@"controls/window/156008");
+            WindowBackground = GameService.Content.GetTexture(@"controls/notification/notification-gray");
 
             _iconFiles = new Dictionary<string, AsyncTexture2D>();
             GetIcon(DEFAULT_ICON);
@@ -120,12 +135,20 @@ namespace temp.Timers {
 
         public void Dispose() {
             // EXCEPTION: "The GraphicsDevice must not be null when creating new resources."
-            MasterScrollEffect.Dispose();
+            // MasterScrollEffect.Dispose();
             TextureFillCrest.Dispose();
             TextureVignette.Dispose();
             TextureEye.Dispose();
             TextureEyeActive.Dispose();
             TextureDescription.Dispose();
+
+            WindowTitleBarLeft.Dispose();
+            WindowTitleBarRight.Dispose();
+            WindowTitleBarLeftActive.Dispose();
+            WindowTitleBarRightActive.Dispose();
+            WindowCorner.Dispose();
+            WindowBackground.Dispose();
+
             foreach (AsyncTexture2D icon in _iconFiles.Values) {
                 icon.Dispose();
             }
